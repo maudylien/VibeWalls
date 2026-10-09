@@ -2,22 +2,33 @@ package com.example.ui.viewmodel
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.R
 import com.example.data.api.GeminiImageService
 import com.example.data.model.Wallpaper
+import com.example.data.repository.WallpaperRepository
 import com.example.util.WallpaperUtils
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
+import com.google.firebase.auth.auth
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 
 class WallpaperViewModel(application: Application) : AndroidViewModel(application) {
 
     private val imageService = GeminiImageService()
+    private val repository = WallpaperRepository(application)
+
+    private val _currentUser = MutableStateFlow<FirebaseUser?>(Firebase.auth.currentUser)
+    val currentUser: StateFlow<FirebaseUser?> = _currentUser.asStateFlow()
 
     private val _vibeInput = MutableStateFlow("rainy cyberpunk lo-fi")
     val vibeInput: StateFlow<String> = _vibeInput.asStateFlow()
@@ -66,6 +77,34 @@ class WallpaperViewModel(application: Application) : AndroidViewModel(applicatio
 
     init {
         loadInitialSampleBatch()
+        setupAuthListener()
+    }
+
+    private fun setupAuthListener() {
+        Firebase.auth.addAuthStateListener { auth ->
+            _currentUser.value = auth.currentUser
+            if (auth.currentUser != null) {
+                startObservingCloudWallpapers()
+            }
+        }
+    }
+
+    private fun startObservingCloudWallpapers() {
+        viewModelScope.launch {
+            try {
+                repository.observeWallpapers()
+                    .catch { error ->
+                        Log.w("WallpaperVM", "Failed to observe cloud wallpapers: ${error.message}")
+                    }
+                    .collect { cloudList ->
+                        if (cloudList.isNotEmpty()) {
+                            _savedWallpapers.value = cloudList
+                        }
+                    }
+            } catch (e: Exception) {
+                Log.w("WallpaperVM", "Cloud observer initialization error: ${e.message}")
+            }
+        }
     }
 
     private fun loadInitialSampleBatch() {
@@ -173,6 +212,7 @@ class WallpaperViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun toggleFavorite(wallpaper: Wallpaper) {
+        val isFav = !wallpaper.isFavorite
         val currentSaved = _savedWallpapers.value.toMutableList()
         val existingIndex = currentSaved.indexOfFirst { it.id == wallpaper.id }
         if (existingIndex >= 0) {
@@ -184,13 +224,25 @@ class WallpaperViewModel(application: Application) : AndroidViewModel(applicatio
         }
         _savedWallpapers.value = currentSaved
 
-        // Also update batch items
+        // Update batch items
         _currentBatch.value = _currentBatch.value.map {
-            if (it.id == wallpaper.id) it.copy(isFavorite = existingIndex < 0) else it
+            if (it.id == wallpaper.id) it.copy(isFavorite = isFav) else it
         }
 
         if (_selectedFullscreenWallpaper.value?.id == wallpaper.id) {
-            _selectedFullscreenWallpaper.value = _selectedFullscreenWallpaper.value?.copy(isFavorite = existingIndex < 0)
+            _selectedFullscreenWallpaper.value = _selectedFullscreenWallpaper.value?.copy(isFavorite = isFav)
+        }
+
+        // Sync to Firestore if authenticated
+        if (Firebase.auth.currentUser != null) {
+            viewModelScope.launch {
+                if (existingIndex < 0) {
+                    val base64 = wallpaper.base64Data ?: wallpaper.bitmap?.let { WallpaperUtils.bitmapToBase64(it) }
+                    repository.saveWallpaper(wallpaper.copy(isFavorite = true, base64Data = base64))
+                } else {
+                    repository.deleteWallpaper(wallpaper.id)
+                }
+            }
         }
     }
 
@@ -204,9 +256,15 @@ class WallpaperViewModel(application: Application) : AndroidViewModel(applicatio
             val uri = WallpaperUtils.saveWallpaperToGallery(context, bitmap, wallpaper.prompt)
             if (uri != null) {
                 _infoMessage.value = "Wallpaper saved to Pictures/VibeWalls!"
-                // Automatically add to saved collection
                 if (_savedWallpapers.value.none { it.id == wallpaper.id }) {
                     _savedWallpapers.value = listOf(wallpaper) + _savedWallpapers.value
+                }
+                // Save to Firestore as well
+                if (Firebase.auth.currentUser != null) {
+                    viewModelScope.launch {
+                        val base64 = wallpaper.base64Data ?: WallpaperUtils.bitmapToBase64(bitmap)
+                        repository.saveWallpaper(wallpaper.copy(base64Data = base64))
+                    }
                 }
             } else {
                 _errorMessage.value = "Failed to save image to gallery."
@@ -266,7 +324,6 @@ class WallpaperViewModel(application: Application) : AndroidViewModel(applicatio
             _errorMessage.value = null
             _infoMessage.value = if (refWallpaper != null) "Remixing 4 variations from reference image..." else "Generating 4 variations for \"$vibe\"..."
 
-            // Ensure reference image has base64 data
             val refBase64 = refWallpaper?.let { wall ->
                 wall.base64Data ?: wall.bitmap?.let { WallpaperUtils.bitmapToBase64(it) }
                 ?: wall.drawableResId?.let {
@@ -283,7 +340,6 @@ class WallpaperViewModel(application: Application) : AndroidViewModel(applicatio
             )
 
             val updatedSlots = _currentBatch.value.toMutableList()
-            // Make sure we have 4 slots
             while (updatedSlots.size < 4) {
                 updatedSlots.add(Wallpaper(prompt = vibe, variationNumber = updatedSlots.size + 1))
             }
@@ -291,7 +347,6 @@ class WallpaperViewModel(application: Application) : AndroidViewModel(applicatio
             var successCount = 0
             var firstError: String? = null
 
-            // Generate 4 variations concurrently
             val jobs = (1..4).map { variationIndex ->
                 async {
                     val promptVariation = if (refWallpaper != null) {
@@ -329,6 +384,13 @@ class WallpaperViewModel(application: Application) : AndroidViewModel(applicatio
                                 _currentBatch.value = updatedSlots.toList()
                                 _generatingSlots.value = _generatingSlots.value - variationIndex
                                 successCount++
+                            }
+
+                            // Sync to Firestore if authenticated
+                            if (Firebase.auth.currentUser != null) {
+                                launch {
+                                    repository.saveWallpaper(newWallpaper)
+                                }
                             }
                         },
                         onFailure = { err ->

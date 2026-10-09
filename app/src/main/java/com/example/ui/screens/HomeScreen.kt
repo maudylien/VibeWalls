@@ -38,9 +38,15 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Wallpaper
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.credentials.CredentialManager
+import com.example.ui.auth.AuthManager
+import com.google.firebase.auth.FirebaseUser
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -125,6 +131,11 @@ fun HomeScreen(
     val showApiKeyDialog by viewModel.showApiKeyDialog.collectAsState()
     val infoMessage by viewModel.infoMessage.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
+
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val credentialManager = remember { CredentialManager.create(context) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -147,10 +158,14 @@ fun HomeScreen(
                 .statusBarsPadding()
         ) {
             // --- Top App Bar ---
-            TopHeaderBar(
-                hasApiKey = hasApiKey,
-                onOpenApiKeyDialog = { viewModel.setShowApiKeyDialog(true) }
-            )
+    TopHeaderBar(
+        hasApiKey = hasApiKey,
+        currentUser = currentUser,
+        onOpenApiKeyDialog = { viewModel.setShowApiKeyDialog(true) },
+        onSignOut = {
+            AuthManager.signOut(context, credentialManager, {}, coroutineScope)
+        }
+    )
 
             // --- Navigation Tabs ---
             TabRow(
@@ -279,7 +294,9 @@ fun HomeScreen(
 @Composable
 private fun TopHeaderBar(
     hasApiKey: Boolean,
-    onOpenApiKeyDialog: () -> Unit
+    currentUser: FirebaseUser?,
+    onOpenApiKeyDialog: () -> Unit,
+    onSignOut: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -317,41 +334,64 @@ private fun TopHeaderBar(
                     letterSpacing = 0.5.sp
                 )
                 Text(
-                    text = "9:16 AI Phone Wallpapers",
+                    text = if (currentUser?.email != null) currentUser.email!! else "9:16 AI Wallpapers",
                     fontSize = 11.sp,
-                    color = TextSecondary
+                    color = if (currentUser?.email != null) NeonCyan else TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
 
-        // API Key Status Chip
-        Surface(
-            onClick = onOpenApiKeyDialog,
-            shape = RoundedCornerShape(16.dp),
-            color = if (hasApiKey) Color(0x2200E5FF) else Color(0x22FFAB00),
-            border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                if (hasApiKey) NeonCyan.copy(alpha = 0.6f) else Color(0xFFFFAB00)
-            ),
-            modifier = Modifier.testTag("api_key_status_chip")
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // API Key Status Chip
+            Surface(
+                onClick = onOpenApiKeyDialog,
+                shape = RoundedCornerShape(16.dp),
+                color = if (hasApiKey) Color(0x2200E5FF) else Color(0x22FFAB00),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (hasApiKey) NeonCyan.copy(alpha = 0.6f) else Color(0xFFFFAB00)
+                ),
+                modifier = Modifier.testTag("api_key_status_chip")
             ) {
-                Icon(
-                    imageVector = Icons.Default.Key,
-                    contentDescription = null,
-                    tint = if (hasApiKey) NeonCyan else Color(0xFFFFAB00),
-                    modifier = Modifier.size(13.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = if (hasApiKey) "Gemini Ready" else "API Key Setup",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (hasApiKey) NeonCyan else Color(0xFFFFAB00)
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Key,
+                        contentDescription = null,
+                        tint = if (hasApiKey) NeonCyan else Color(0xFFFFAB00),
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (hasApiKey) "Gemini Ready" else "API Key",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (hasApiKey) NeonCyan else Color(0xFFFFAB00)
+                    )
+                }
+            }
+
+            if (currentUser != null) {
+                Spacer(modifier = Modifier.width(6.dp))
+                IconButton(
+                    onClick = onSignOut,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x33FFFFFF))
+                        .testTag("sign_out_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Logout,
+                        contentDescription = "Sign Out",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
         }
     }

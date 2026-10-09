@@ -1,0 +1,91 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default-deny all documents by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidWallpaper(data) {
+      return data.userId is string && data.userId.size() <= 128 &&
+             data.prompt is string && data.prompt.size() > 0 && data.prompt.size() <= 2000 &&
+             (!('base64Data' in data) || (data.base64Data is string && data.base64Data.size() <= 4000000)) &&
+             data.aspectRatio is string && data.aspectRatio.size() <= 10 &&
+             (!('imageSize' in data) || (data.imageSize is string && data.imageSize.size() <= 10)) &&
+             (!('modelUsed' in data) || (data.modelUsed is string && data.modelUsed.size() <= 50)) &&
+             (!('isFavorite' in data) || data.isFavorite is bool) &&
+             (!('variationNumber' in data) || (data.variationNumber is int && data.variationNumber >= 1 && data.variationNumber <= 10)) &&
+             (!('remixedFromId' in data) || data.remixedFromId == null || (data.remixedFromId is string && data.remixedFromId.size() <= 128)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             (!('updatedAt' in data) || (data.updatedAt is timestamp && data.updatedAt <= request.time));
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() <= 128 &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 200)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             (!('updatedAt' in data) || (data.updatedAt is timestamp && data.updatedAt <= request.time));
+    }
+
+    // Scoped user collections
+    match /users/{userId} {
+      match /profile/{docId} {
+        allow get: if isOwner(userId);
+        allow create: if isOwner(userId) &&
+                         isValidId(docId) &&
+                         incoming().userId == userId &&
+                         isValidUserProfile(incoming());
+        allow update: if isOwner(userId) &&
+                         isValidId(docId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidUserProfile(incoming());
+        allow delete: if isOwner(userId);
+      }
+
+      match /wallpapers/{wallpaperId} {
+        allow get, list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(wallpaperId) &&
+                         incoming().userId == userId &&
+                         incoming().keys().hasAll(['userId', 'prompt', 'aspectRatio', 'createdAt']) &&
+                         incoming().keys().hasOnly(['userId', 'prompt', 'base64Data', 'aspectRatio', 'imageSize', 'modelUsed', 'isFavorite', 'variationNumber', 'remixedFromId', 'createdAt', 'updatedAt']) &&
+                         isValidWallpaper(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(wallpaperId) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         isValidWallpaper(incoming()) &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['prompt', 'isFavorite', 'updatedAt', 'base64Data']);
+
+        allow delete: if isOwner(userId) && isValidId(wallpaperId);
+      }
+    }
+  }
+}

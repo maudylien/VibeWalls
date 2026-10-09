@@ -1,0 +1,106 @@
+{
+  "entities": {
+    "Wallpaper": {
+      "title": "Wallpaper",
+      "description": "An AI generated phone wallpaper saved by the user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The UID of the user who owns this wallpaper."
+        },
+        "prompt": {
+          "type": "string",
+          "description": "The vibe or prompt description for this wallpaper."
+        },
+        "base64Data": {
+          "type": "string",
+          "description": "Base64 encoded image string or preview data."
+        },
+        "aspectRatio": {
+          "type": "string",
+          "description": "Aspect ratio of the generated wallpaper (e.g. 9:16)."
+        },
+        "imageSize": {
+          "type": "string",
+          "description": "Resolution size of the generated wallpaper (e.g. 1K, 2K, 4K)."
+        },
+        "modelUsed": {
+          "type": "string",
+          "description": "Gemini model used to generate or remix this wallpaper."
+        },
+        "isFavorite": {
+          "type": "boolean",
+          "description": "Whether this wallpaper is marked as a favorite."
+        },
+        "variationNumber": {
+          "type": "integer",
+          "description": "Variation slot index (1 to 4)."
+        },
+        "remixedFromId": {
+          "type": "string",
+          "description": "Optional ID of the reference wallpaper remixed from."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp. Submitted via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last updated timestamp. Submitted via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "prompt",
+        "aspectRatio",
+        "createdAt"
+      ]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Basic authenticated user profile details.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "The UID of the user."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Display name of the user."
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the user."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp. Submitted via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last updated timestamp. Submitted via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": [
+        "userId",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/wallpapers/{wallpaperId}": {
+      "schema": "Wallpaper",
+      "description": "Collection of user-created, favorited, and remixed wallpapers."
+    },
+    "/users/{userId}/profile/info": {
+      "schema": "UserProfile",
+      "description": "User profile information document."
+    }
+  }
+}
