@@ -2,5 +2,7 @@
   "name": "VibeWalls",
   "description": "AI phone wallpaper generator creating 9:16 variations from vibe prompts with remix and lock screen preview.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
